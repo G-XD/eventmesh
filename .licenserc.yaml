@@ -23,6 +23,8 @@ header:
     copyright-owner: Apache Software Foundation
 
   paths-ignore:
+    - 'eventmesh-operator/config/crd/bases'
+    - 'eventmesh-operator/config/rbac'
     - '.github/PULL_REQUEST_TEMPLATE'
     - '.gitmodules'
     - '**/.gitkeep'
@@ -39,10 +41,9 @@ header:
     - '**/Cargo.lock'
     - 'LICENSE'
     - 'NOTICE'
-    - 'DISCLAIMER'
     - 'gradlew'
     - 'gradlew.bat'
     - '**/*.txt'
-    - 'DISCLAIMER'
+    - 'tools/dist-license/licenses/**'
 
   comment: on-failure

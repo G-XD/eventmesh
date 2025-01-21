@@ -25,13 +25,13 @@ import org.apache.eventmesh.common.protocol.grpc.cloudevents.CloudEvent;
 import org.apache.eventmesh.common.protocol.grpc.cloudevents.CloudEvent.CloudEventAttributeValue;
 import org.apache.eventmesh.common.protocol.grpc.cloudevents.CloudEventBatch;
 import org.apache.eventmesh.common.protocol.grpc.common.EventMeshCloudEventUtils;
+import org.apache.eventmesh.common.protocol.grpc.common.GrpcType;
 import org.apache.eventmesh.common.protocol.grpc.common.ProtoSupport;
 import org.apache.eventmesh.common.protocol.grpc.common.ProtocolKey;
 import org.apache.eventmesh.common.protocol.grpc.common.StatusCode;
 import org.apache.eventmesh.common.utils.JsonUtils;
 import org.apache.eventmesh.common.utils.RandomStringUtils;
 import org.apache.eventmesh.runtime.constants.EventMeshConstants;
-import org.apache.eventmesh.runtime.core.protocol.grpc.consumer.consumergroup.GrpcType;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -43,6 +43,8 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
+
+import io.cloudevents.SpecVersion;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.protobuf.Any;
@@ -64,7 +66,7 @@ public class ServiceUtils {
     }
 
     public static boolean validateCloudEventBatchAttributes(CloudEventBatch cloudEventBatch) {
-        if (null == cloudEventBatch || cloudEventBatch.getEventsCount() < 1) {
+        if (cloudEventBatch == null || cloudEventBatch.getEventsCount() < 1) {
             return false;
         }
         List<CloudEvent> eventsList = cloudEventBatch.getEventsList();
@@ -97,7 +99,7 @@ public class ServiceUtils {
     }
 
     public static boolean validateCloudEventBatchData(CloudEventBatch cloudEventBatch) {
-        if (null == cloudEventBatch || cloudEventBatch.getEventsCount() < 1) {
+        if (cloudEventBatch == null || cloudEventBatch.getEventsCount() < 1) {
             return false;
         }
         List<CloudEvent> eventsList = cloudEventBatch.getEventsList();
@@ -163,7 +165,7 @@ public class ServiceUtils {
     public static void sendResponseCompleted(StatusCode code, String message, EventEmitter<CloudEvent> emitter) {
 
         Instant instant = now();
-        CloudEvent.Builder builder = CloudEvent.newBuilder().setId(RandomStringUtils.generateUUID())
+        CloudEvent.Builder builder = CloudEvent.newBuilder().setId(RandomStringUtils.generateUUID()).setSpecVersion(SpecVersion.V1.toString())
             .putAttributes(ProtocolKey.GRPC_RESPONSE_CODE, CloudEventAttributeValue.newBuilder().setCeString(code.getRetCode()).build())
             .putAttributes(ProtocolKey.GRPC_RESPONSE_MESSAGE,
                 CloudEventAttributeValue.newBuilder().setCeString(code.getErrMsg() + EventMeshConstants.BLANK_SPACE + message).build())
@@ -182,7 +184,7 @@ public class ServiceUtils {
      */
     public static void sendResponseCompleted(StatusCode code, EventEmitter<CloudEvent> emitter) {
         Instant instant = now();
-        CloudEvent.Builder builder = CloudEvent.newBuilder()
+        CloudEvent.Builder builder = CloudEvent.newBuilder().setSpecVersion(SpecVersion.V1.toString())
             .putAttributes(ProtocolKey.GRPC_RESPONSE_CODE, CloudEventAttributeValue.newBuilder().setCeString(code.getRetCode()).build())
             .putAttributes(ProtocolKey.GRPC_RESPONSE_MESSAGE, CloudEventAttributeValue.newBuilder().setCeString(code.getErrMsg()).build())
             .putAttributes(ProtocolKey.GRPC_RESPONSE_TIME, CloudEventAttributeValue.newBuilder()

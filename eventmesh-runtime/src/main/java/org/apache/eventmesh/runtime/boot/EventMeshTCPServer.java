@@ -24,7 +24,6 @@ import org.apache.eventmesh.api.meta.dto.EventMeshUnRegisterInfo;
 import org.apache.eventmesh.common.exception.EventMeshException;
 import org.apache.eventmesh.common.protocol.tcp.Command;
 import org.apache.eventmesh.common.utils.IPUtils;
-import org.apache.eventmesh.common.utils.LogUtils;
 import org.apache.eventmesh.common.utils.ThreadUtils;
 import org.apache.eventmesh.metrics.api.MetricsPluginFactory;
 import org.apache.eventmesh.metrics.api.MetricsRegistry;
@@ -45,8 +44,7 @@ import org.apache.eventmesh.runtime.core.protocol.tcp.client.rebalance.EventMesh
 import org.apache.eventmesh.runtime.core.protocol.tcp.client.rebalance.EventMeshRebalanceService;
 import org.apache.eventmesh.runtime.core.protocol.tcp.client.session.retry.TcpRetryer;
 import org.apache.eventmesh.runtime.meta.MetaStorage;
-import org.apache.eventmesh.runtime.metrics.tcp.EventMeshTcpMonitor;
-import org.apache.eventmesh.webhook.admin.AdminWebHookConfigOperationManager;
+import org.apache.eventmesh.runtime.metrics.tcp.EventMeshTcpMetricsManager;
 
 import java.util.List;
 import java.util.Optional;
@@ -75,8 +73,6 @@ public class EventMeshTCPServer extends AbstractTCPServer {
 
     private TcpRetryer tcpRetryer;
 
-    private AdminWebHookConfigOperationManager adminWebHookConfigOperationManage;
-
     private RateLimiter rateLimiter;
     private EventMeshRebalanceService eventMeshRebalanceService;
 
@@ -89,7 +85,7 @@ public class EventMeshTCPServer extends AbstractTCPServer {
     }
 
     public void init() throws Exception {
-        LogUtils.info(log, "==================EventMeshTCPServer Initialing==================");
+        log.info("==================EventMeshTCPServer Initialing==================");
         super.init();
 
         rateLimiter = RateLimiter.create(eventMeshTCPConfiguration.getEventMeshTcpMsgReqnumPerSecond());
@@ -106,26 +102,22 @@ public class EventMeshTCPServer extends AbstractTCPServer {
         clientSessionGroupMapping.init();
         super.setClientSessionGroupMapping(clientSessionGroupMapping);
 
-        super.setEventMeshTcpMonitor(new EventMeshTcpMonitor(this, metricsRegistries));
-        super.getEventMeshTcpMonitor().init();
+        super.setEventMeshTcpMetricsManager(new EventMeshTcpMetricsManager(this, metricsRegistries));
 
         if (eventMeshTCPConfiguration.isEventMeshServerMetaStorageEnable()) {
             eventMeshRebalanceService = new EventMeshRebalanceService(this, new EventMeshRebalanceImpl(this));
             eventMeshRebalanceService.init();
         }
 
-        adminWebHookConfigOperationManage = new AdminWebHookConfigOperationManager();
-        adminWebHookConfigOperationManage.init();
-
         registerTCPRequestProcessor();
 
-        LogUtils.info(log, "--------------------------EventMeshTCPServer Inited");
+        log.info("--------------------------EventMeshTCPServer Inited");
     }
 
     @Override
     public void start() throws Exception {
         super.start();
-        super.getEventMeshTcpMonitor().start();
+        super.getEventMeshTcpMetricsManager().start();
 
         clientSessionGroupMapping.start();
         tcpRetryer.start();
@@ -135,14 +127,14 @@ public class EventMeshTCPServer extends AbstractTCPServer {
             eventMeshRebalanceService.start();
         }
 
-        LogUtils.info(log, "--------------------------EventMeshTCPServer Started");
+        log.info("--------------------------EventMeshTCPServer Started");
     }
 
     @Override
     public void shutdown() throws Exception {
         super.shutdown();
 
-        super.getEventMeshTcpMonitor().shutdown();
+        super.getEventMeshTcpMetricsManager().shutdown();
 
         clientSessionGroupMapping.shutdown();
         ThreadUtils.sleep(40, TimeUnit.SECONDS);
@@ -154,7 +146,7 @@ public class EventMeshTCPServer extends AbstractTCPServer {
             this.unRegister();
         }
 
-        LogUtils.info(log, "--------------------------EventMeshTCPServer Shutdown");
+        log.info("--------------------------EventMeshTCPServer Shutdown");
     }
 
     /**
@@ -222,17 +214,21 @@ public class EventMeshTCPServer extends AbstractTCPServer {
         ListenProcessor listenProcessor = new ListenProcessor(this);
         registerProcessor(Command.LISTEN_REQUEST, listenProcessor, taskHandleExecutorService);
 
+        ThreadPoolExecutor sendExecutorService = super.getTcpThreadPoolGroup().getSendExecutorService();
         MessageTransferProcessor messageTransferProcessor = new MessageTransferProcessor(this);
-        registerProcessor(Command.REQUEST_TO_SERVER, messageTransferProcessor, taskHandleExecutorService);
-        registerProcessor(Command.RESPONSE_TO_SERVER, messageTransferProcessor, taskHandleExecutorService);
-        registerProcessor(Command.ASYNC_MESSAGE_TO_SERVER, messageTransferProcessor, taskHandleExecutorService);
-        registerProcessor(Command.BROADCAST_MESSAGE_TO_SERVER, messageTransferProcessor, taskHandleExecutorService);
+        registerProcessor(Command.REQUEST_TO_SERVER, messageTransferProcessor, sendExecutorService);
+        registerProcessor(Command.ASYNC_MESSAGE_TO_SERVER, messageTransferProcessor, sendExecutorService);
+        registerProcessor(Command.BROADCAST_MESSAGE_TO_SERVER, messageTransferProcessor, sendExecutorService);
 
+        ThreadPoolExecutor replyExecutorService = super.getTcpThreadPoolGroup().getReplyExecutorService();
+        registerProcessor(Command.RESPONSE_TO_SERVER, messageTransferProcessor, replyExecutorService);
+
+        ThreadPoolExecutor ackExecutorService = super.getTcpThreadPoolGroup().getAckExecutorService();
         MessageAckProcessor messageAckProcessor = new MessageAckProcessor(this);
-        registerProcessor(Command.RESPONSE_TO_CLIENT_ACK, messageAckProcessor, taskHandleExecutorService);
-        registerProcessor(Command.ASYNC_MESSAGE_TO_CLIENT_ACK, messageAckProcessor, taskHandleExecutorService);
-        registerProcessor(Command.BROADCAST_MESSAGE_TO_CLIENT_ACK, messageAckProcessor, taskHandleExecutorService);
-        registerProcessor(Command.REQUEST_TO_CLIENT_ACK, messageAckProcessor, taskHandleExecutorService);
+        registerProcessor(Command.RESPONSE_TO_CLIENT_ACK, messageAckProcessor, ackExecutorService);
+        registerProcessor(Command.ASYNC_MESSAGE_TO_CLIENT_ACK, messageAckProcessor, ackExecutorService);
+        registerProcessor(Command.BROADCAST_MESSAGE_TO_CLIENT_ACK, messageAckProcessor, ackExecutorService);
+        registerProcessor(Command.REQUEST_TO_CLIENT_ACK, messageAckProcessor, ackExecutorService);
     }
 
     public EventMeshServer getEventMeshServer() {
@@ -249,14 +245,6 @@ public class EventMeshTCPServer extends AbstractTCPServer {
 
     public EventMeshRebalanceService getEventMeshRebalanceService() {
         return eventMeshRebalanceService;
-    }
-
-    public AdminWebHookConfigOperationManager getAdminWebHookConfigOperationManage() {
-        return adminWebHookConfigOperationManage;
-    }
-
-    public void setAdminWebHookConfigOperationManage(AdminWebHookConfigOperationManager adminWebHookConfigOperationManage) {
-        this.adminWebHookConfigOperationManage = adminWebHookConfigOperationManage;
     }
 
     public Acl getAcl() {
@@ -282,4 +270,6 @@ public class EventMeshTCPServer extends AbstractTCPServer {
     public TcpRetryer getTcpRetryer() {
         return tcpRetryer;
     }
+
+
 }

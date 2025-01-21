@@ -17,11 +17,11 @@
 
 package org.apache.eventmesh.connector.mongodb.sink.connector;
 
+import org.apache.eventmesh.common.config.connector.Config;
+import org.apache.eventmesh.common.config.connector.rdb.mongodb.MongodbSinkConfig;
 import org.apache.eventmesh.connector.mongodb.sink.client.Impl.MongodbSinkClient;
 import org.apache.eventmesh.connector.mongodb.sink.client.MongodbReplicaSetSinkClient;
 import org.apache.eventmesh.connector.mongodb.sink.client.MongodbStandaloneSinkClient;
-import org.apache.eventmesh.connector.mongodb.sink.config.MongodbSinkConfig;
-import org.apache.eventmesh.openconnect.api.config.Config;
 import org.apache.eventmesh.openconnect.api.connector.ConnectorContext;
 import org.apache.eventmesh.openconnect.api.connector.SinkConnectorContext;
 import org.apache.eventmesh.openconnect.api.sink.Sink;
@@ -85,6 +85,11 @@ public class MongodbSinkConnector implements Sink {
     @Override
     public String name() {
         return this.sinkConfig.getConnectorConfig().getConnectorName();
+    }
+
+    @Override
+    public void onException(ConnectRecord record) {
+
     }
 
     @Override

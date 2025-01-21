@@ -17,8 +17,8 @@
 
 package org.apache.eventmesh.connector.knative.source.connector;
 
-import org.apache.eventmesh.connector.knative.source.config.KnativeSourceConfig;
-import org.apache.eventmesh.openconnect.api.config.Config;
+import org.apache.eventmesh.common.config.connector.Config;
+import org.apache.eventmesh.common.config.connector.knative.KnativeSourceConfig;
 import org.apache.eventmesh.openconnect.api.connector.ConnectorContext;
 import org.apache.eventmesh.openconnect.api.connector.SourceConnectorContext;
 import org.apache.eventmesh.openconnect.api.source.Source;
@@ -63,6 +63,11 @@ public class KnativeSourceConnector implements Source {
     @Override
     public String name() {
         return this.sourceConfig.getConnectorConfig().getConnectorName();
+    }
+
+    @Override
+    public void onException(ConnectRecord record) {
+
     }
 
     @Override

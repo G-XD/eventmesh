@@ -17,13 +17,14 @@
 
 package org.apache.eventmesh.openconnect.api.connector;
 
-import org.apache.eventmesh.openconnect.api.config.Config;
+import org.apache.eventmesh.common.ComponentLifeCycle;
+import org.apache.eventmesh.common.config.connector.Config;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.data.ConnectRecord;
 
 /**
  * Connector
  */
-public interface Connector {
+public interface Connector extends ComponentLifeCycle {
 
     /**
      * Returns the class type of the configuration for this Connector.
@@ -33,11 +34,14 @@ public interface Connector {
     Class<? extends Config> configClass();
 
     /**
+     * This init method is obsolete. For detailed discussion, please see <a href="https://github.com/apache/eventmesh/issues/4565">here</a>
+     * <p>
      * Initializes the Connector with the provided configuration.
      *
      * @param config Configuration object
      * @throws Exception if initialization fails
      */
+    @Deprecated
     void init(Config config) throws Exception;
 
     /**
@@ -47,13 +51,6 @@ public interface Connector {
      * @throws Exception if initialization fails
      */
     void init(ConnectorContext connectorContext) throws Exception;
-
-    /**
-     * Starts the Connector.
-     *
-     * @throws Exception if the start operation fails
-     */
-    void start() throws Exception;
 
     /**
      * Commits the specified ConnectRecord object.
@@ -70,10 +67,11 @@ public interface Connector {
     String name();
 
     /**
-     * Stops the Connector.
+     * This method will be called when an exception occurs while processing a ConnectRecord object. This method can be used to handle the exception,
+     * such as logging error information, or stopping the connector's operation when an exception occurs.
      *
-     * @throws Exception if stopping fails
+     * @param record The ConnectRecord object that was being processed when the exception occurred
      */
-    void stop() throws Exception;
+    void onException(ConnectRecord record);
 
 }

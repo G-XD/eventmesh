@@ -23,24 +23,27 @@ import org.apache.eventmesh.client.tcp.EventMeshTCPClient;
 import org.apache.eventmesh.client.tcp.EventMeshTCPClientFactory;
 import org.apache.eventmesh.client.tcp.common.MessageUtils;
 import org.apache.eventmesh.client.tcp.conf.EventMeshTCPClientConfig;
+import org.apache.eventmesh.common.ThreadPoolFactory;
+import org.apache.eventmesh.common.config.connector.SourceConfig;
+import org.apache.eventmesh.common.config.connector.offset.OffsetStorageConfig;
 import org.apache.eventmesh.common.exception.EventMeshException;
+import org.apache.eventmesh.common.protocol.tcp.OPStatus;
 import org.apache.eventmesh.common.protocol.tcp.Package;
 import org.apache.eventmesh.common.protocol.tcp.UserAgent;
 import org.apache.eventmesh.common.utils.JsonUtils;
 import org.apache.eventmesh.common.utils.SystemUtils;
-import org.apache.eventmesh.openconnect.api.callback.SendExcepionContext;
-import org.apache.eventmesh.openconnect.api.callback.SendMessageCallback;
-import org.apache.eventmesh.openconnect.api.callback.SendResult;
-import org.apache.eventmesh.openconnect.api.config.SourceConfig;
 import org.apache.eventmesh.openconnect.api.connector.SourceConnectorContext;
 import org.apache.eventmesh.openconnect.api.source.Source;
-import org.apache.eventmesh.openconnect.offsetmgmt.api.config.OffsetStorageConfig;
+import org.apache.eventmesh.openconnect.offsetmgmt.api.callback.SendExceptionContext;
+import org.apache.eventmesh.openconnect.offsetmgmt.api.callback.SendMessageCallback;
+import org.apache.eventmesh.openconnect.offsetmgmt.api.callback.SendResult;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.data.ConnectRecord;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.data.RecordOffsetManagement;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.storage.DefaultOffsetManagementServiceImpl;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.storage.OffsetManagementService;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.storage.OffsetStorageReaderImpl;
 import org.apache.eventmesh.openconnect.offsetmgmt.api.storage.OffsetStorageWriterImpl;
+import org.apache.eventmesh.openconnect.util.CloudEventUtil;
 import org.apache.eventmesh.spi.EventMeshExtensionFactory;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -54,7 +57,6 @@ import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -85,9 +87,11 @@ public class SourceWorker implements ConnectorWorker {
 
     private volatile RecordOffsetManagement.CommittableOffsets committableOffsets;
 
-    private final ExecutorService pollService = Executors.newSingleThreadExecutor();
+    private final ExecutorService pollService =
+        ThreadPoolFactory.createSingleExecutor("eventMesh-sourceWorker-pollService");
 
-    private final ExecutorService startService = Executors.newSingleThreadExecutor();
+    private final ExecutorService startService =
+        ThreadPoolFactory.createSingleExecutor("eventMesh-sourceWorker-startService");
 
     private final BlockingQueue<ConnectRecord> queue;
     private final EventMeshTCPClient<CloudEvent> eventMeshTCPClient;
@@ -148,8 +152,8 @@ public class SourceWorker implements ConnectorWorker {
             .map(storageType -> EventMeshExtensionFactory.getExtension(OffsetManagementService.class, storageType))
             .orElse(new DefaultOffsetManagementServiceImpl());
         this.offsetManagementService.initialize(offsetStorageConfig);
-        this.offsetStorageWriter = new OffsetStorageWriterImpl(source.name(), offsetManagementService);
-        this.offsetStorageReader = new OffsetStorageReaderImpl(source.name(), offsetManagementService);
+        this.offsetStorageWriter = new OffsetStorageWriterImpl(offsetManagementService);
+        this.offsetStorageReader = new OffsetStorageReaderImpl(offsetManagementService);
     }
 
     @Override
@@ -195,7 +199,7 @@ public class SourceWorker implements ConnectorWorker {
             while (retryTimes < MAX_RETRY_TIMES) {
                 try {
                     Package sendResult = eventMeshTCPClient.publish(event, 3000);
-                    if (sendResult.getHeader().getCode() == 0) {
+                    if (sendResult.getHeader().getCode() == OPStatus.SUCCESS.getCode()) {
                         // publish success
                         // commit record
                         this.source.commit(connectRecord);
@@ -233,16 +237,24 @@ public class SourceWorker implements ConnectorWorker {
     }
 
     private CloudEvent convertRecordToEvent(ConnectRecord connectRecord) {
+        CloudEventBuilder cloudEventBuilder = CloudEventBuilder.v1();
 
-        return CloudEventBuilder.v1()
-            .withId(UUID.randomUUID().toString())
+        cloudEventBuilder.withId(UUID.randomUUID().toString())
             .withSubject(config.getPubSubConfig().getSubject())
             .withSource(URI.create("/"))
             .withDataContentType("application/cloudevents+json")
             .withType(CLOUD_EVENTS_PROTOCOL_NAME)
             .withData(Objects.requireNonNull(JsonUtils.toJSONString(connectRecord.getData())).getBytes(StandardCharsets.UTF_8))
-            .withExtension("ttl", 10000)
-            .build();
+            .withExtension("ttl", 10000);
+
+        if (connectRecord.getExtensions() != null) {
+            for (String key : connectRecord.getExtensions().keySet()) {
+                if (CloudEventUtil.validateExtensionType(connectRecord.getExtensionObj(key))) {
+                    cloudEventBuilder.withExtension(key, connectRecord.getExtension(key));
+                }
+            }
+        }
+        return cloudEventBuilder.build();
     }
 
     private SendResult convertToSendResult(CloudEvent event) {
@@ -252,8 +264,8 @@ public class SourceWorker implements ConnectorWorker {
         return result;
     }
 
-    private SendExcepionContext convertToExceptionContext(CloudEvent event, Throwable cause) {
-        SendExcepionContext exceptionContext = new SendExcepionContext();
+    private SendExceptionContext convertToExceptionContext(CloudEvent event, Throwable cause) {
+        SendExceptionContext exceptionContext = new SendExceptionContext();
         exceptionContext.setTopic(event.getId());
         exceptionContext.setMessageId(event.getId());
         exceptionContext.setCause(cause);
@@ -267,7 +279,6 @@ public class SourceWorker implements ConnectorWorker {
         try {
             source.stop();
         } catch (Exception e) {
-            e.printStackTrace();
             log.error("source destroy error", e);
         }
         log.info("pollService stopping");
@@ -321,7 +332,7 @@ public class SourceWorker implements ConnectorWorker {
             log.info("{} Committing offsets for {} acknowledged messages", this, committableOffsets.numCommittableMessages());
             if (committableOffsets.hasPending()) {
                 log.debug("{} There are currently {} pending messages spread across {} source partitions whose offsets will not be committed. "
-                    + "The source partition with the most pending messages is {}, with {} pending messages",
+                        + "The source partition with the most pending messages is {}, with {} pending messages",
                     this,
                     committableOffsets.numUncommittableMessages(),
                     committableOffsets.numDeques(),
@@ -329,7 +340,7 @@ public class SourceWorker implements ConnectorWorker {
                     committableOffsets.largestDequeSize());
             } else {
                 log.debug("{} There are currently no pending messages for this offset commit; "
-                    + "all messages dispatched to the task's producer since the last commit have been acknowledged",
+                        + "all messages dispatched to the task's producer since the last commit have been acknowledged",
                     this);
             }
         }

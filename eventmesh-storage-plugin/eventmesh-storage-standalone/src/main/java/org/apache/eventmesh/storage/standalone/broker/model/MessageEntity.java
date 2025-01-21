@@ -21,11 +21,16 @@ import java.io.Serializable;
 
 import io.cloudevents.CloudEvent;
 
+import lombok.NoArgsConstructor;
+
+@NoArgsConstructor
 public class MessageEntity implements Serializable {
+
+    private static final long serialVersionUID = 6646148767540524786L;
 
     private TopicMetadata topicMetadata;
 
-    private CloudEvent message;
+    private transient CloudEvent message;
 
     private long offset;
 
@@ -36,6 +41,11 @@ public class MessageEntity implements Serializable {
         this.message = message;
         this.offset = offset;
         this.createTimeMills = currentTimeMills;
+    }
+
+    public MessageEntity(TopicMetadata topicMetadata, CloudEvent message) {
+        this.topicMetadata = topicMetadata;
+        this.message = message;
     }
 
     public TopicMetadata getTopicMetadata() {

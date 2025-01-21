@@ -17,11 +17,11 @@
 
 package org.apache.eventmesh.connector.mongodb.source.connector;
 
+import org.apache.eventmesh.common.config.connector.Config;
+import org.apache.eventmesh.common.config.connector.rdb.mongodb.MongodbSourceConfig;
 import org.apache.eventmesh.connector.mongodb.source.client.Impl.MongodbSourceClient;
 import org.apache.eventmesh.connector.mongodb.source.client.MongodbReplicaSetSourceClient;
 import org.apache.eventmesh.connector.mongodb.source.client.MongodbStandaloneSourceClient;
-import org.apache.eventmesh.connector.mongodb.source.config.MongodbSourceConfig;
-import org.apache.eventmesh.openconnect.api.config.Config;
 import org.apache.eventmesh.openconnect.api.connector.ConnectorContext;
 import org.apache.eventmesh.openconnect.api.connector.SourceConnectorContext;
 import org.apache.eventmesh.openconnect.api.source.Source;
@@ -42,9 +42,11 @@ public class MongodbSourceConnector implements Source {
 
     private MongodbSourceConfig sourceConfig;
 
-    private static final int DEFAULT_BATCH_SIZE = 10;
-
     private BlockingQueue<CloudEvent> queue;
+
+    private int maxBatchSize;
+
+    private long maxPollWaitTime;
 
     private MongodbSourceClient client;
 
@@ -67,7 +69,9 @@ public class MongodbSourceConnector implements Source {
     }
 
     private void doInit() {
-        this.queue = new LinkedBlockingQueue<>(1000);
+        this.maxBatchSize = sourceConfig.getPollConfig().getMaxBatchSize();
+        this.maxPollWaitTime = sourceConfig.getPollConfig().getMaxWaitTime();
+        this.queue = new LinkedBlockingQueue<>(sourceConfig.getPollConfig().getCapacity());
         String connectorType = sourceConfig.getConnectorConfig().getConnectorType();
         if (connectorType.equals(ClusterType.STANDALONE.name())) {
             this.client = new MongodbStandaloneSourceClient(sourceConfig.getConnectorConfig(), queue);
@@ -94,21 +98,32 @@ public class MongodbSourceConnector implements Source {
     }
 
     @Override
+    public void onException(ConnectRecord record) {
+
+    }
+
+    @Override
     public void stop() throws Exception {
         this.client.stop();
     }
 
     @Override
     public List<ConnectRecord> poll() {
-        List<ConnectRecord> connectRecords = new ArrayList<>(DEFAULT_BATCH_SIZE);
-        for (int count = 0; count < DEFAULT_BATCH_SIZE; ++count) {
+        long startTime = System.currentTimeMillis();
+        long remainingTime = maxPollWaitTime;
+
+        List<ConnectRecord> connectRecords = new ArrayList<>(maxBatchSize);
+        for (int count = 0; count < maxBatchSize; ++count) {
             try {
-                CloudEvent event = queue.poll(3, TimeUnit.SECONDS);
+                CloudEvent event = queue.poll(remainingTime, TimeUnit.MILLISECONDS);
                 if (event == null) {
                     break;
                 }
-
                 connectRecords.add(CloudEventUtil.convertEventToRecord(event));
+
+                // calculate elapsed time and update remaining time for next poll
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                remainingTime = maxPollWaitTime > elapsedTime ? maxPollWaitTime - elapsedTime : 0;
             } catch (InterruptedException e) {
                 break;
             }

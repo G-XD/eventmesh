@@ -37,6 +37,7 @@ import java.util.regex.Pattern;
 
 import io.netty.channel.Channel;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import inet.ipaddr.HostName;
@@ -46,7 +47,10 @@ import inet.ipaddr.IPAddressString;
 @Slf4j
 public class IPUtils {
 
-    public static String getLocalAddress() {
+    @Getter
+    public static String localAddress = init();
+
+    private static String init() {
         // if the progress works under docker environment
         // return the host ip about this docker located from environment value
         String dockerHostIp = System.getenv("docker_host_ip");
@@ -59,14 +63,19 @@ public class IPUtils {
         List<String> list = Arrays.asList(priority.split("<"));
         ArrayList<String> preferList = new ArrayList<>(list);
         NetworkInterface preferNetworkInterface = null;
+        boolean isInterfacePreferred = false;
 
         try {
             Enumeration<NetworkInterface> enumeration1 = NetworkInterface.getNetworkInterfaces();
             while (enumeration1.hasMoreElements()) {
                 final NetworkInterface networkInterface = enumeration1.nextElement();
+                String interfaceName = networkInterface.getName();
+                if (!isInterfacePreferred && preferList.contains(interfaceName)) {
+                    isInterfacePreferred = true;
+                }
                 if (preferNetworkInterface == null) {
                     preferNetworkInterface = networkInterface;
-                } else if (preferList.indexOf(networkInterface.getName()) // get the networkInterface that has higher priority
+                } else if (preferList.indexOf(interfaceName) // get the networkInterface that has higher priority
                     > preferList.indexOf(preferNetworkInterface.getName())) {
                     preferNetworkInterface = networkInterface;
                 }
@@ -76,7 +85,7 @@ public class IPUtils {
             ArrayList<String> ipv4Result = new ArrayList<String>();
             ArrayList<String> ipv6Result = new ArrayList<String>();
 
-            if (preferNetworkInterface != null) {
+            if (preferNetworkInterface != null && isInterfacePreferred) {
                 final Enumeration<InetAddress> en = preferNetworkInterface.getInetAddresses();
                 getIpResult(ipv4Result, ipv6Result, en);
             } else {
@@ -156,7 +165,7 @@ public class IPUtils {
     }
 
     public static String parseChannelRemoteAddr(final Channel channel) {
-        if (null == channel) {
+        if (channel == null) {
             return "";
         }
         SocketAddress remote = channel.remoteAddress();

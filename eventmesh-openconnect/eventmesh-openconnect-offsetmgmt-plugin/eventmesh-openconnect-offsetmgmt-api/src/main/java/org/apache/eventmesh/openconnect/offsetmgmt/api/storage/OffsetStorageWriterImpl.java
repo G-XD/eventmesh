@@ -17,8 +17,8 @@
 
 package org.apache.eventmesh.openconnect.offsetmgmt.api.storage;
 
-import org.apache.eventmesh.openconnect.offsetmgmt.api.data.RecordOffset;
-import org.apache.eventmesh.openconnect.offsetmgmt.api.data.RecordPartition;
+import org.apache.eventmesh.common.remote.offset.RecordOffset;
+import org.apache.eventmesh.common.remote.offset.RecordPartition;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -35,27 +35,26 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class OffsetStorageWriterImpl implements OffsetStorageWriter, Closeable {
 
-    private final String connectorName;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
-    private OffsetManagementService offsetManagementService;
+    private final OffsetManagementService offsetManagementService;
     /**
      * Offset data in Connect format
      */
-    private Map<ConnectorRecordPartition, RecordOffset> data = new HashMap<>();
-    private Map<ConnectorRecordPartition, RecordOffset> toFlush = null;
+    private Map<RecordPartition, RecordOffset> data = new HashMap<>();
+    private Map<RecordPartition, RecordOffset> toFlush = null;
 
     // Unique ID for each flush request to handle callbacks after timeouts
     private long currentFlushId = 0;
 
-    public OffsetStorageWriterImpl(String connectorName, OffsetManagementService offsetManagementService) {
-        this.connectorName = connectorName;
+    public OffsetStorageWriterImpl(OffsetManagementService offsetManagementService) {
         this.offsetManagementService = offsetManagementService;
     }
 
     @Override
-    public void writeOffset(RecordPartition partition, RecordOffset position) {
-        ConnectorRecordPartition extendRecordPartition = new ConnectorRecordPartition(connectorName, partition.getPartition());
-        data.put(extendRecordPartition, position);
+    public void writeOffset(RecordPartition partition, RecordOffset offset) {
+        if (partition != null) {
+            data.put(partition, offset);
+        }
     }
 
     /**
@@ -81,7 +80,8 @@ public class OffsetStorageWriterImpl implements OffsetStorageWriter, Closeable {
      */
     public synchronized boolean beginFlush() {
         if (isFlushing()) {
-            throw new RuntimeException("OffsetStorageWriter is already flushing");
+            log.warn("OffsetStorageWriter is already flushing");
+            return false;
         }
         if (data.isEmpty()) {
             return false;
